@@ -1,0 +1,34 @@
+client/
+│
+├── Main.java
+│
+├── ui/
+│   ├── ConnectView.java     
+│   ├── AuthChoiceView.java   
+│   ├── LoginView.java
+│   ├── AddAccountView.java
+│   ├── HomeView.java
+│   ├── ShopView.java
+│   ├── ScheduleView.java
+│   └── AccountView.java
+│
+├── controller/
+│   ├── ConnectController.java
+│   ├── AuthChoiceController.java
+│   ├── LoginController.java
+│   ├── AddAccountController.java
+│   ├── ShopController.java
+│   ├── ScheduleController.java
+│   └── AccountController.java
+│
+├── network/
+│   ├── ClientConnection.java
+│   └── NetworkManager.java
+│
+├── model/
+│   ├── User.java
+│   ├── Product.java
+│   └── Schedule.java
+│
+└── util/
+    └── Session.java
