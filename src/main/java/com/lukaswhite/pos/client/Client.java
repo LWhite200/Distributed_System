@@ -1,6 +1,7 @@
 package com.lukaswhite.pos.client;
 
 import com.lukaswhite.pos.common.ProductSpec;
+import com.lukaswhite.pos.common.ScheduleResult;
 import com.lukaswhite.pos.loadbalancer.LoadBalancer;
 
 import javafx.application.Application;
@@ -9,6 +10,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
@@ -20,43 +22,41 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * JavaFX point-of-sale client - visually and functionally almost the same
- * screens as the original homework, but the connection logic underneath
- * is now "distributed" instead of "one fixed server".
+ * JavaFX point-of-sale AND service-scheduling client. This is now the
+ * combined front end for three former projects:
+ *   - the retail item/receipt homework ("New Sale")
+ *   - the Turbo Auto Service scheduling homework ("Schedule Service" /
+ *     "View Mechanic Schedule & Pay")
+ *   - a for-fun Blackjack mini-game (entirely local, see BlackjackScreen)
  *
- * Connection flow:
- *   1. The user types in the LOAD BALANCER's IP address (not a specific
- *      server's IP) - the whole point of the load balancer is that the
- *      client shouldn't need to know or care which physical machine
- *      actually ends up serving it.
- *   2. We open a short-lived connection to the load balancer's
- *      CLIENT_ASSIGN_PORT, send "ASSIGN", and get back "host:port" for
- *      whichever alive ServerNode currently has the least load (or "NONE"
- *      if every node is down).
- *   3. We open a SECOND, longer-lived connection directly to that node
- *      and do all the real item-lookup / receipt work on it. This part's
- *      protocol (write itemCode, write quantity, read ProductSpec-or-String
- *      back) is unchanged from the original homework's Client/ClientHandler.
+ * Connection flow (unchanged from the distributed version): the user
+ * types in the LOAD BALANCER's IP, we ask it which ServerNode to use,
+ * then open a direct connection to that node and do everything else -
+ * item lookups AND scheduling - over that one connection, using a
+ * command-tag protocol (see ClientHandler on the server side): every
+ * request starts with a String naming the command ("ITEM", "SCHEDULE",
+ * "VIEW_SCHEDULE", "GET_SERVICES"), followed by that command's arguments,
+ * and gets back exactly one response object.
  */
 public class Client extends Application {
 
-    // Streams to the ServerNode we were assigned - set up once in
-    // connectToAssignedNode(), then reused for every "Add Item" click.
     private ObjectOutputStream out;
     private ObjectInputStream in;
 
+    // --- state for the "New Sale" item-purchase screen ---
     private double totalAmount = 0.0;
     private final StringBuilder receiptBuilder = new StringBuilder();
 
-    /**
-     * Builds the very first screen: enter the load balancer's IP and connect.
-     * @param primaryStage The primary stage for this application.
-     */
+    private Stage primaryStage;
+
     @Override
     public void start(Stage primaryStage) {
-        primaryStage.setTitle("Client");
+        this.primaryStage = primaryStage;
+        primaryStage.setTitle("Turbo Auto Service");
 
         Label ipLabel = new Label("Load Balancer IP Address:");
         TextField ipField = new TextField("127.0.0.1");
@@ -72,7 +72,7 @@ public class Client extends Application {
             String loadBalancerIp = ipField.getText();
             statusLabel.setText("Asking load balancer for a server...");
             if (connectToAssignedNode(loadBalancerIp)) {
-                showWelcomeScreen(primaryStage);
+                showWelcomeScreen();
             } else {
                 statusLabel.setText("Could not connect - see the error dialog for details.");
             }
@@ -82,24 +82,19 @@ public class Client extends Application {
         primaryStage.show();
     }
 
-    /**
-     * Main
-     * @param args Command line arguments.
-     */
     public static void main(String[] args) {
         launch(args);
     }
 
-    /**
-     * Two-step connect: first ask the load balancer WHICH node to use, then
-     * connect directly to that node.
-     * @param loadBalancerIp IP address of the LoadBalancer.
-     * @return True only if both steps succeed and we're ready to send item requests.
-     */
+    // ================================================================
+    // Connecting: ask the load balancer, then connect straight to the
+    // node it names. Unchanged from the distributed-only version.
+    // ================================================================
+
     private boolean connectToAssignedNode(String loadBalancerIp) {
         String assignment = requestAssignment(loadBalancerIp);
         if (assignment == null) {
-            return false; // requestAssignment already showed an error dialog
+            return false;
         }
         if (assignment.equals("NONE")) {
             showAlert("No Servers Available", "The load balancer has no live server nodes right now. "
@@ -126,10 +121,6 @@ public class Client extends Application {
         }
     }
 
-    /**
-     * Talks to the load balancer's client-assign port and asks for a server.
-     * @return "host:port" of the assigned node, the literal string "NONE", or null on error.
-     */
     private String requestAssignment(String loadBalancerIp) {
         try (Socket lbSocket = new Socket(loadBalancerIp, LoadBalancer.CLIENT_ASSIGN_PORT);
              ObjectOutputStream lbOut = new ObjectOutputStream(lbSocket.getOutputStream());
@@ -147,42 +138,52 @@ public class Client extends Application {
         }
     }
 
-    /**
-     * Displays the welcome screen with a button to start a new sale.
-     * @param primaryStage The primary stage for this application.
-     */
-    private void showWelcomeScreen(Stage primaryStage) {
-        Label welcomeLabel = new Label("Welcome To White's Shop");
+    // ================================================================
+    // Welcome screen - the hub for all three "apps" this client offers.
+    // ================================================================
+
+    private void showWelcomeScreen() {
+        Label welcomeLabel = new Label("Welcome To White's Shop & Turbo Auto Service");
         Button newSaleButton = new Button("New Sale");
+        Button scheduleButton = new Button("Schedule Service");
+        Button viewScheduleButton = new Button("View Mechanic Schedule & Pay");
+        Button blackjackButton = new Button("Play Blackjack (just for fun)");
 
-        VBox welcomeLayout = new VBox(20, welcomeLabel, newSaleButton);
+        VBox welcomeLayout = new VBox(15, welcomeLabel,
+                newSaleButton, scheduleButton, viewScheduleButton, blackjackButton);
         welcomeLayout.setAlignment(Pos.CENTER);
-        Scene welcomeScene = new Scene(welcomeLayout, 400, 200);
+        welcomeLayout.setPadding(new Insets(20));
+        Scene welcomeScene = new Scene(welcomeLayout, 420, 280);
 
-        newSaleButton.setOnAction(e -> showMainScreen(primaryStage));
+        newSaleButton.setOnAction(e -> showMainScreen());
+        scheduleButton.setOnAction(e -> showScheduleScreen());
+        viewScheduleButton.setOnAction(e -> showViewScheduleScreen());
+        blackjackButton.setOnAction(e -> BlackjackScreen.open());
 
         primaryStage.setScene(welcomeScene);
     }
 
-    /**
-     * Displays the main sales screen with components to add items and pay.
-     * @param primaryStage The primary stage for this application.
-     */
-    private void showMainScreen(Stage primaryStage) {
+    // ================================================================
+    // "New Sale" - retail item purchase, unchanged from before except
+    // that every item request is now tagged with the "ITEM" command.
+    // ================================================================
+
+    private void showMainScreen() {
         Label itemCodeLabel = new Label("Item Code:");
         TextField itemCodeField = new TextField();
         Label quantityLabel = new Label("Quantity:");
         TextField quantityField = new TextField();
         Button addButton = new Button("Add Item");
         Button payButton = new Button("Pay");
+        Button backButton = new Button("Back");
         TextArea receiptArea = new TextArea();
         receiptArea.setEditable(false);
         receiptArea.setFont(Font.font("Courier New"));
 
         VBox mainLayout = new VBox(10, itemCodeLabel, itemCodeField, quantityLabel, quantityField,
-                addButton, receiptArea, payButton);
+                addButton, receiptArea, payButton, backButton);
         mainLayout.setPadding(new Insets(10));
-        Scene mainScene = new Scene(mainLayout, 500, 320);
+        Scene mainScene = new Scene(mainLayout, 500, 380);
 
         addButton.setOnAction(e -> {
             String itemCode = itemCodeField.getText();
@@ -194,24 +195,16 @@ public class Client extends Application {
             }
         });
 
-        payButton.setOnAction(e -> showReceiptWindow(primaryStage));
+        payButton.setOnAction(e -> showReceiptWindow());
+        backButton.setOnAction(e -> showWelcomeScreen());
 
         primaryStage.setScene(mainScene);
     }
 
-    /**
-     * Adds an item to the receipt and updates the total amount. Sends the
-     * item code + quantity to whichever ServerNode we were assigned, and
-     * handles either a ProductSpec (success) or a String (error message)
-     * coming back - unchanged from the original homework's protocol.
-     * @param itemCode The code of the item.
-     * @param quantity The quantity of the item.
-     * @param receiptArea The text area where the receipt is displayed.
-     */
     private void addItemToReceipt(String itemCode, int quantity, TextArea receiptArea) {
         try {
+            out.writeObject("ITEM");
             out.writeObject(itemCode);
-            out.flush();
             out.writeObject(quantity);
             out.flush();
 
@@ -233,11 +226,8 @@ public class Client extends Application {
                 receiptArea.appendText(line);
 
             } else if (response instanceof String message) {
-                if (message.equals("Invalid item code.")) {
-                    receiptArea.appendText("Invalid item code.\n");
-                } else {
-                    receiptArea.appendText("Unknown error occurred.\n");
-                }
+                receiptArea.appendText(message.equals("Invalid item code.")
+                        ? "Invalid item code.\n" : "Unknown error occurred.\n");
             }
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
@@ -246,11 +236,7 @@ public class Client extends Application {
         }
     }
 
-    /**
-     * Shows a new window with the receipt and the total amount.
-     * @param primaryStage The primary stage for this application.
-     */
-    private void showReceiptWindow(Stage primaryStage) {
+    private void showReceiptWindow() {
         Stage receiptStage = new Stage();
         receiptStage.setTitle("Receipt");
 
@@ -267,18 +253,191 @@ public class Client extends Application {
         receiptStage.setScene(receiptScene);
         receiptStage.show();
 
-        // Reset so orders don't carry over between sales.
         totalAmount = 0.0;
         receiptBuilder.setLength(0);
 
-        receiptStage.setOnHiding(e -> showWelcomeScreen(primaryStage));
+        receiptStage.setOnHiding(e -> showWelcomeScreen());
     }
 
-    /**
-     * Displays an alert with a specified title and message.
-     * @param title The title of the alert.
-     * @param message The message to display.
-     */
+    // ================================================================
+    // "Schedule Service" - new: ported from the Turbo Auto Service
+    // homework's DataImporter/Scheduler, but driven from the GUI one
+    // customer/vehicle/service at a time instead of a bulk text file.
+    // ================================================================
+
+    private void showScheduleScreen() {
+        Label customerLabel = new Label("Customer Name:");
+        TextField customerField = new TextField();
+        Label vehicleLabel = new Label("Vehicle Description:");
+        TextField vehicleField = new TextField();
+        Label serviceLabel = new Label("Service:");
+        ComboBox<String> serviceCombo = new ComboBox<>();
+        serviceCombo.setPromptText("Loading services...");
+        Button submitButton = new Button("Schedule");
+        Button backButton = new Button("Back");
+        Label statusLabel = new Label();
+        statusLabel.setWrapText(true);
+
+        VBox layout = new VBox(10, customerLabel, customerField, vehicleLabel, vehicleField,
+                serviceLabel, serviceCombo, submitButton, statusLabel, backButton);
+        layout.setPadding(new Insets(15));
+        Scene scene = new Scene(layout, 420, 340);
+
+        // Populate the service dropdown from whatever the server's
+        // SERVICES_TABLE currently has, so the GUI never gets out of
+        // sync with the database (e.g. if new services are added later).
+        List<String> catalog = fetchServiceCatalog();
+        serviceCombo.getItems().addAll(catalog);
+        serviceCombo.setPromptText(catalog.isEmpty() ? "No services available" : "Select a service");
+
+        submitButton.setOnAction(e -> {
+            String customer = customerField.getText().trim();
+            String vehicle = vehicleField.getText().trim();
+            String serviceChoice = serviceCombo.getValue();
+
+            if (customer.isEmpty() || vehicle.isEmpty() || serviceChoice == null) {
+                statusLabel.setText("Please fill in customer, vehicle, and service.");
+                return;
+            }
+
+            // The dropdown shows "Oil Change (30 min)" - strip the
+            // duration suffix back off before sending just the name.
+            String serviceName = serviceChoice.replaceAll("\\s*\\(\\d+ min\\)$", "");
+
+            ScheduleResult result = scheduleService(customer, vehicle, serviceName);
+            if (result == null) {
+                statusLabel.setText("Could not reach the server.");
+                return;
+            }
+
+            statusLabel.setText(result.getMessage());
+            if (result.isSuccess()) {
+                customerField.clear();
+                vehicleField.clear();
+                serviceCombo.setValue(null);
+            }
+        });
+
+        backButton.setOnAction(e -> showWelcomeScreen());
+
+        primaryStage.setScene(scene);
+    }
+
+    private List<String> fetchServiceCatalog() {
+        try {
+            out.writeObject("GET_SERVICES");
+            out.flush();
+            Object response = in.readObject();
+            if (response instanceof List<?> list) {
+                List<String> catalog = new ArrayList<>();
+                for (Object item : list) {
+                    catalog.add((String) item);
+                }
+                return catalog;
+            }
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            showAlert("Error", "Could not load the service list: " + e.getMessage());
+        }
+        return new ArrayList<>();
+    }
+
+    private ScheduleResult scheduleService(String customerName, String vehicleDescription, String serviceName) {
+        try {
+            out.writeObject("SCHEDULE");
+            out.writeObject(customerName);
+            out.writeObject(vehicleDescription);
+            out.writeObject(serviceName);
+            out.flush();
+
+            Object response = in.readObject();
+            if (response instanceof ScheduleResult result) {
+                return result;
+            }
+            return new ScheduleResult(false, "Unexpected response from server.");
+
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    // ================================================================
+    // "View Mechanic Schedule & Pay" - new: the read-only reporting
+    // screen from the Turbo Auto Service console app, now rendered in a
+    // TextArea instead of printed to a terminal.
+    // ================================================================
+
+    private void showViewScheduleScreen() {
+        Label mechanicLabel = new Label("Mechanic:");
+        ComboBox<String> mechanicCombo = new ComboBox<>();
+        mechanicCombo.getItems().addAll("Sue", "Steve", "Both");
+        mechanicCombo.setValue("Both");
+
+        Label timeFrameLabel = new Label("Time Frame:");
+        ComboBox<String> timeFrameCombo = new ComboBox<>();
+        timeFrameCombo.getItems().addAll("Day", "Week", "Month", "Year");
+        timeFrameCombo.setValue("Week");
+
+        Button viewButton = new Button("View");
+        Button backButton = new Button("Back");
+
+        VBox layout = new VBox(10, mechanicLabel, mechanicCombo, timeFrameLabel, timeFrameCombo,
+                viewButton, backButton);
+        layout.setPadding(new Insets(15));
+        Scene scene = new Scene(layout, 340, 260);
+
+        viewButton.setOnAction(e -> {
+            String mechanic = mechanicCombo.getValue().toUpperCase();
+            String timeFrame = timeFrameCombo.getValue().toUpperCase();
+            String report = viewSchedule(mechanic, timeFrame);
+            if (report != null) {
+                showReportWindow(report);
+            }
+        });
+
+        backButton.setOnAction(e -> showWelcomeScreen());
+
+        primaryStage.setScene(scene);
+    }
+
+    private String viewSchedule(String mechanicFilter, String timeFrame) {
+        try {
+            out.writeObject("VIEW_SCHEDULE");
+            out.writeObject(mechanicFilter);
+            out.writeObject(timeFrame);
+            out.flush();
+
+            Object response = in.readObject();
+            return response instanceof String s ? s : "Unexpected response from server.";
+
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            showAlert("Error", "Could not fetch the schedule: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void showReportWindow(String report) {
+        Stage reportStage = new Stage();
+        reportStage.setTitle("Mechanic Schedule & Pay");
+
+        TextArea reportArea = new TextArea(report);
+        reportArea.setEditable(false);
+        reportArea.setFont(Font.font("Courier New"));
+        reportArea.setWrapText(false);
+
+        VBox layout = new VBox(10, reportArea);
+        layout.setPadding(new Insets(10));
+
+        reportStage.setScene(new Scene(layout, 650, 450));
+        reportStage.show();
+    }
+
+    // ================================================================
+    // Shared helper
+    // ================================================================
+
     private void showAlert(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.setTitle(title);
