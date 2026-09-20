@@ -13,8 +13,7 @@ if not exist out mkdir out
 javac -cp "lib\sqlite-jdbc-3.53.4.0.jar" -d out ^
  src\main\java\com\lukaswhite\pos\common\*.java ^
  src\main\java\com\lukaswhite\pos\server\*.java ^
- src\main\java\com\lukaswhite\pos\loadbalancer\*.java ^
- src\main\java\com\lukaswhite\pos\blackjack\*.java
+ src\main\java\com\lukaswhite\pos\loadbalancer\*.java
 
 if errorlevel 1 (
     echo.
