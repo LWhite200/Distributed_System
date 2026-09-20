@@ -147,10 +147,9 @@ public class Client extends Application {
         Button newSaleButton = new Button("New Sale");
         Button scheduleButton = new Button("Schedule Service");
         Button viewScheduleButton = new Button("View Mechanic Schedule & Pay");
-        Button blackjackButton = new Button("Play Blackjack (just for fun)");
 
         VBox welcomeLayout = new VBox(15, welcomeLabel,
-                newSaleButton, scheduleButton, viewScheduleButton, blackjackButton);
+                newSaleButton, scheduleButton, viewScheduleButton);
         welcomeLayout.setAlignment(Pos.CENTER);
         welcomeLayout.setPadding(new Insets(20));
         Scene welcomeScene = new Scene(welcomeLayout, 420, 280);
@@ -158,7 +157,6 @@ public class Client extends Application {
         newSaleButton.setOnAction(e -> showMainScreen());
         scheduleButton.setOnAction(e -> showScheduleScreen());
         viewScheduleButton.setOnAction(e -> showViewScheduleScreen());
-        blackjackButton.setOnAction(e -> BlackjackScreen.open());
 
         primaryStage.setScene(welcomeScene);
     }
@@ -377,7 +375,7 @@ public class Client extends Application {
         Label timeFrameLabel = new Label("Time Frame:");
         ComboBox<String> timeFrameCombo = new ComboBox<>();
         timeFrameCombo.getItems().addAll("Day", "Week", "Month", "Year");
-        timeFrameCombo.setValue("Week");
+        timeFrameCombo.setValue("Day");
 
         Button viewButton = new Button("View");
         Button backButton = new Button("Back");

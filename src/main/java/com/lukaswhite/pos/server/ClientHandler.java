@@ -1,3 +1,16 @@
+// Homework 7: GUI + OOP + Threads + Network + Database programming
+// Course: CIS 357
+// Due date: August 15, 2024
+// Names: Lukas A. White, Connor Oard, Noah T
+// Instructor: Il-Hyung Cho
+/*
+    Client handler - Uses a thread to manage client requests
+        
+
+
+
+*/
+
 package com.lukaswhite.pos.server;
 
 import com.lukaswhite.pos.common.ProductSpec;
@@ -35,10 +48,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class ClientHandler extends Thread {
 
-    private final Socket clientSocket;
-    private final Connection connection; // shared connection, used for retail item lookups
-    private final AtomicInteger activeClients;
+    private final Socket clientSocket;           // The client   
+    private final Connection connection;        // shared connection, used for retail item lookup. With Database
+    private final AtomicInteger activeClients; // Count of clients the Servernode has
 
+    // Client Handler Object
     public ClientHandler(Socket clientSocket, Connection connection, AtomicInteger activeClients) {
         this.clientSocket = clientSocket;
         this.connection = connection;
